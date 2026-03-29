@@ -2,8 +2,9 @@
  * SEITE — Data Model Type Definitions
  * Based on SRS v2.0 §3.1
  *
- * These interfaces are technology-agnostic and used by both
- * the Dexie (IndexedDB) layer and the BOM calculation engine.
+ * FIX #9: Se agrega `porcentajeManoObra` al interface Project para que el
+ *         porcentaje de mano de obra sea configurable por proyecto en lugar
+ *         de estar hardcodeado al 40% en el motor de cálculo.
  */
 
 // ─── Enums ───────────────────────────────────────────────
@@ -54,11 +55,13 @@ export interface Project {
   nivelElectrificacion: ElectrificationLevel;
   perfilNormativoId: string;
   moneda: 'USD' | 'CRC';
-  tipoCambio: number; // Tipo de cambio respecto al USD
+  tipoCambio: number;
   tasaImpuesto: number;
-  porcentajeDesperdicioCable: number; // Manual override
-  porcentajeDesperdicioTubo: number;  // Manual override
-  margenContingencia: number;         // Manual override
+  porcentajeDesperdicioCable: number;
+  porcentajeDesperdicioTubo: number;
+  margenContingencia: number;
+  /** FIX #9: Porcentaje de mano de obra sobre el costo de materiales. Default: 40 */
+  porcentajeManoObra: number;
   estado: ProjectStatus;
   versionActual: number;
   creadoPor: string;
@@ -99,10 +102,14 @@ export interface Material {
   unidad: MaterialUnit;
   precioUnitario: number;
   monedaCatalogo: 'USD' | 'CRC';
-  activo: boolean; // para soft-delete
+  activo: boolean;
   categoria: MaterialCategory;
   creadoEn: string;
   enlaceReferencia?: string;
+  /** Estado del último sondeo semanal automático de precios */
+  estadoPrecio?: 'actualizado' | 'no_encontrado' | 'pendiente';
+  /** ISO timestamp del último sondeo exitoso */
+  actualizadoEn?: string;
 }
 
 export interface OfertaMaterial extends Material {

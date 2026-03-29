@@ -135,6 +135,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       porcentajeDesperdicioCable: data.porcentajeDesperdicioCable ?? 15,
       porcentajeDesperdicioTubo: data.porcentajeDesperdicioTubo ?? 10,
       margenContingencia: data.margenContingencia ?? 5,
+      porcentajeManoObra: data.porcentajeManoObra ?? 40,
       estado: 'BORRADOR',
       versionActual: 1,
       creadoPor: 'local-user',

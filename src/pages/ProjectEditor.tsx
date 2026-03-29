@@ -890,14 +890,6 @@ function BOMTab() {
                   🇨🇷 CRC
                 </button>
               </div>
-              <button 
-                className="btn btn--secondary btn--sm" 
-                onClick={() => recalculateBOM()}
-                title="Actualizar todos los precios del catálogo"
-                style={{ marginLeft: 'var(--space-2)', borderRadius: 'var(--radius-sm)' }}
-              >
-                🔄 Recalcular Todo
-              </button>
             </div>
 
             {hasAdjustments && (

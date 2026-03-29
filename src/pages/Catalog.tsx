@@ -9,7 +9,7 @@ import { db } from '../database/db';
 import type { Material, MaterialCategory, MaterialUnit, OfertaMaterial } from '../database/schema';
 import { v4 as uuidv4 } from 'uuid';
 import { supabase } from '../lib/supabaseClient';
-import { forceUpdateMasterCatalog } from '../database/seedData';
+import { useProjectStore } from '../stores/projectStore';
 
 const CATEGORY_LABELS: Record<MaterialCategory, string> = {
   CONDUCTOR: 'Conductor',
@@ -193,54 +193,56 @@ export function Catalog() {
   };
 
   const handleSyncCloud = async () => {
+    if (!confirm('¿Actualizar el catálogo local con los precios más recientes de la nube?\nEsto sobreescribirá precios y enlaces de materiales existentes.')) return;
+
     setIsSyncing(true);
     try {
       const { data, error } = await supabase.from('materiales').select('*');
       if (error) throw error;
-      
-      if (data && data.length > 0) {
-        const existingMats = await db.materials.toArray();
-        const existingCodes = new Map(existingMats.map(m => [m.codigo, m.id]));
-        
-        for (const remote of data) {
-           const localId = existingCodes.get(remote.codigo) || uuidv4();
-           const mapped: Material = {
-             id: localId,
-             codigo: remote.codigo,
-             descripcion: remote.descripcion,
-             unidad: remote.unidad as MaterialUnit,
-             precioUnitario: Number(remote.precio_unitario) || 0,
-             monedaCatalogo: remote.moneda_catalogo || 'USD',
-             categoria: remote.categoria as MaterialCategory,
-             activo: remote.activo ?? true,
-             enlaceReferencia: remote.enlace_referencia || undefined,
-             creadoEn: remote.creado_en || new Date().toISOString(),
-           };
-           await db.materials.put(mapped);
-        }
-        await loadMaterials();
-        alert(`Sincronización completa. ${data.length} materiales procesados desde la nube.`);
-      } else {
-        alert('No se encontraron materiales en la nube.');
-      }
-    } catch (err: any) {
-      console.error('Error syncing:', err);
-      alert('Error sincronizando con la nube: ' + err.message);
-    } finally {
-      setIsSyncing(false);
-    }
-  };
 
-  const handleRestoreMaster = async () => {
-    if (!confirm('¿Estás seguro de restaurar el catálogo maestro? Esto sobreescribirá los precios y enlaces de los materiales base con los datos oficiales más recientes.')) return;
-    
-    setIsSyncing(true);
-    try {
-      const count = await forceUpdateMasterCatalog(db.materials);
+      if (!data || data.length === 0) {
+        alert('No se encontraron materiales en la nube.');
+        return;
+      }
+
+      // Mapear materiales existentes por codigo (clave de negocio estable)
+      const existingMats = await db.materials.toArray();
+      const existingByCode = new Map(existingMats.map(m => [m.codigo, m]));
+
+      const toUpsert: Material[] = data.map((remote) => {
+        const existing = existingByCode.get(remote.codigo);
+        // Preservar el ID local si ya existe, para no romper BOMEntries existentes
+        const stableId = existing?.id ?? remote.id;
+        return {
+          id: stableId,
+          codigo: remote.codigo,
+          descripcion: remote.descripcion,
+          unidad: remote.unidad as MaterialUnit,
+          precioUnitario: Number(remote.precio_unitario) || 0,
+          monedaCatalogo: (remote.moneda_catalogo || 'USD') as 'USD' | 'CRC',
+          categoria: remote.categoria as MaterialCategory,
+          activo: remote.activo ?? true,
+          enlaceReferencia: remote.enlace_referencia || undefined,
+          creadoEn: remote.creado_en || new Date().toISOString(),
+          estadoPrecio: (remote.estado_precio || 'actualizado') as Material['estadoPrecio'],
+          actualizadoEn: remote.actualizado_en || undefined,
+        };
+      });
+
+      await db.materials.bulkPut(toUpsert);
       await loadMaterials();
-      alert(`Catálogo restaurado. ${count} materiales base actualizados con referencias funcionales.`);
-    } catch (err: any) {
-      alert('Error restaurando catálogo: ' + err.message);
+
+      // Recalcular BOM del proyecto activo para reflejar nuevos precios
+      const { activeProject, recalculateBOM } = useProjectStore.getState();
+      if (activeProject) {
+        await recalculateBOM();
+      }
+
+      alert(`Catálogo actualizado. ${toUpsert.length} materiales sincronizados desde la nube.`);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error('Error syncing:', err);
+      alert('Error sincronizando con la nube: ' + message);
     } finally {
       setIsSyncing(false);
     }
@@ -261,11 +263,8 @@ export function Catalog() {
           </p>
         </div>
         <div className="page-header__actions flex gap-3">
-          <button className="btn btn--secondary" onClick={handleRestoreMaster} disabled={isSyncing} title="Restaurar enlaces y precios oficiales de Costa Rica">
-            {isSyncing ? 'Restaurando...' : '🔄 Restaurar Maestro'}
-          </button>
-          <button className="btn btn--secondary" onClick={handleSyncCloud} disabled={isSyncing}>
-            {isSyncing ? 'Sincronizando...' : '☁️ Sincronizar'}
+          <button className="btn btn--secondary" onClick={handleSyncCloud} disabled={isSyncing} title="Actualizar precios y datos desde la base de datos en la nube">
+            {isSyncing ? 'Sincronizando...' : '☁️ Actualizar desde Nube'}
           </button>
           <button className="btn btn--primary" onClick={handleNew}>
             ＋ Nuevo Material
@@ -354,18 +353,33 @@ export function Catalog() {
                                   mat.enlaceReferencia.trim() !== '' && 
                                   mat.enlaceReferencia.trim() !== '-' &&
                                   mat.enlaceReferencia.trim() !== '—';
-                  const isIncomplete = !hasLink;
+                  const isNoLink = !hasLink;
+                  const isNoEncontrado = mat.estadoPrecio === 'no_encontrado';
+                  const isIncomplete = isNoLink || isNoEncontrado;
+                  const rowBg = isNoEncontrado
+                    ? 'rgba(239, 68, 68, 0.18)'
+                    : isNoLink
+                    ? 'rgba(239, 68, 68, 0.08)'
+                    : undefined;
                   return (
                     <tr 
                       key={mat.id} 
                       style={{ 
                         opacity: !mat.activo ? 0.5 : 1,
-                        backgroundColor: isIncomplete ? 'rgba(239, 68, 68, 0.1)' : undefined
+                        backgroundColor: rowBg,
                       }}
                     >
                       <td className="font-semibold text-sm">
                         {mat.codigo}
-                        {isIncomplete && <div className="text-danger" style={{ fontSize: '10px' }}>⚠️ Sin Referencia</div>}
+                        {isNoEncontrado && (
+                          <div className="text-danger" style={{ fontSize: '10px', fontWeight: 600 }}
+                            title="El sondeo semanal automático no encontró este material en ningún proveedor">
+                            🔴 No encontrado en sondeo
+                          </div>
+                        )}
+                        {!isNoEncontrado && isNoLink && (
+                          <div className="text-danger" style={{ fontSize: '10px' }}>⚠️ Sin Referencia</div>
+                        )}
                       </td>
                       <td className="text-sm">{mat.descripcion}</td>
                       {activeTab === 'ofertas' && (
