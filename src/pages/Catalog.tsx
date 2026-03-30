@@ -390,7 +390,7 @@ export function Catalog() {
                       </td>
                       <td className="text-sm">{UNIT_LABELS[mat.unidad]}</td>
                       <td className={`data-table__number ${isIncomplete ? 'text-danger font-bold' : ''}`}>
-                        {mat.monedaCatalogo} {isIncomplete ? '0.00' : mat.precioUnitario.toFixed(2)}
+                        {mat.monedaCatalogo} {isNoLink ? '0.00' : mat.precioUnitario.toFixed(2)}
                       </td>
                       <td style={{ textAlign: 'center' }}>
                         {mat.enlaceReferencia ? (

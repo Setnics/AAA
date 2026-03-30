@@ -1,18 +1,13 @@
 /**
- * SEITE — Scraper: El Lagar (ellagar.com)
+ * SEITE — Scraper: El Lagar Costa Rica (ellagar.com)
  *
- * El Lagar usa HTML server-side renderizado, accesible con fetch + cheerio.
- * No requiere Playwright.
- *
- * Estructura de URLs conocida:
- *   Búsqueda:  https://www.ellagar.com/ECOMMERCE/Buscar?busqueda={term}
- *   Producto:  https://www.ellagar.com/ECOMMERCE/DetalleArticulo/{id}/{slug}
+ * NOTA: El Lagar usa ahora una SPA (React). Se utiliza Playwright
+ * para navegar la página, interactuar y permitir que carguen los productos.
  */
 
 'use strict';
 
-const fetch = require('node-fetch');
-const cheerio = require('cheerio');
+const { chromium } = require('playwright');
 
 const BASE_URL = 'https://www.ellagar.com';
 
@@ -21,123 +16,90 @@ const BASE_URL = 'https://www.ellagar.com';
  */
 
 /**
- * Busca un término en El Lagar y devuelve los primeros resultados con precio.
+ * Busca un término en El Lagar usando Playwright.
  * @param {string} searchTerm
  * @returns {Promise<PriceResult[]>}
  */
 async function searchElLagar(searchTerm) {
-  const searchUrl = `${BASE_URL}/ECOMMERCE/Buscar?busqueda=${encodeURIComponent(searchTerm)}`;
+  let browser;
+  try {
+    browser = await chromium.launch({ headless: true });
+    const page = await browser.newPage();
 
-  const res = await fetch(searchUrl, {
-    headers: {
-      'User-Agent':
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      Accept: 'text/html,application/xhtml+xml',
+    await page.setExtraHTTPHeaders({
       'Accept-Language': 'es-CR,es;q=0.9',
-    },
-    timeout: 12000,
-    redirect: 'follow',
-  });
-
-  if (!res.ok) throw new Error(`El Lagar fetch error: ${res.status}`);
-
-  const html = await res.text();
-  const $ = cheerio.load(html);
-  const results = [];
-
-  // Selectores basados en estructura típica de ecommerces costarricenses
-  // El Lagar usa un grid de productos con clase .producto-item o similar
-  const productSelectors = [
-    '.producto-item',
-    '.product-item',
-    '.item-producto',
-    '.articulo',
-    '[class*="producto"]',
-    '[class*="product"]',
-  ];
-
-  let $products = $();
-  for (const sel of productSelectors) {
-    $products = $(sel);
-    if ($products.length > 0) break;
-  }
-
-  // Fallback: buscar links que parezcan productos individuales
-  if ($products.length === 0) {
-    $(`a[href*="DetalleArticulo"]`).each((_, el) => {
-      const $el = $(el);
-      const href = $el.attr('href');
-      const url = href?.startsWith('http') ? href : `${BASE_URL}${href}`;
-
-      // Buscar precio cerca del link
-      const $container = $el.closest('div, li, article');
-      const priceText = extractPriceText($container.text());
-      if (priceText && url) {
-        results.push({
-          precio: priceText,
-          moneda: 'CRC',
-          url,
-          titulo: $el.text().trim() || $el.attr('title') || '',
-          fuente: 'ellagar',
-        });
-      }
     });
-    return results.slice(0, 5);
+
+    const searchUrl = `${BASE_URL}/ECOMMERCE/Buscar?busqueda=${encodeURIComponent(searchTerm)}`;
+    await page.goto(searchUrl, { waitUntil: 'networkidle', timeout: 30000 });
+
+    // Esperar los productos renderizados por React
+    // El dom original de React tiene clases como 'producto-item', 'product-item', etc.
+    // Vamos a ser más generales porque cambian (SPA)
+    await page
+      .waitForSelector('a[href*="DetalleArticulo"]', { timeout: 15000 })
+      .catch(() => null);
+
+    const results = await page.evaluate(() => {
+      const items = [];
+      const productEls = document.querySelectorAll('a[href*="DetalleArticulo"]');
+
+      // Algunos DetalleArticulo son banners, iteramos para extraer precio y título cercano
+      for (const linkEl of Array.from(productEls).slice(0, 10)) {
+        const href = linkEl.href || linkEl.getAttribute('href');
+        
+        // El Lagar envuelve el link en un div padre que tiene todo el contenido y precio
+        const container = linkEl.closest('div[class*="product"], div[class*="item"], div[class*="card"]');
+        if (!container) continue;
+
+        const textContent = container.textContent || '';
+        
+        // Regex para extraer formato ₡1.234,56 o parecido
+        const cleanStr = textContent.replace(/₡/g, '').replace(/\s+/g, ' ');
+
+        let precio = null;
+        
+        // Formato: 1.234,56
+        const euroMatch = cleanStr.match(/(\d{1,3}(?:\.\d{3})+),(\d{2})/);
+        if (euroMatch) precio = parseFloat(euroMatch[0].replace(/\./g, '').replace(',', '.'));
+        
+        if (!precio) {
+          // Formato: 1234
+          const match = cleanStr.match(/\b(\d{3,7})(?:[.,]\d{2})?\b/);
+          if (match) precio = parseFloat(match[1]);
+        }
+
+        if (precio && href) {
+          items.push({
+            precio,
+            moneda: 'CRC',
+            url: href.startsWith('http') ? href : `https://www.ellagar.com${href.startsWith('/') ? href : '/' + href}`,
+            titulo: container.querySelector('h1, h2, h3, h4, h5, [class*="title"], [class*="name"]')?.textContent?.trim() || linkEl.textContent?.trim() || '',
+            fuente: 'ellagar',
+          });
+        }
+      }
+
+      // Evitar duplicados por misma URL
+      const unique = [];
+      const urls = new Set();
+      for (const item of items) {
+        if (!urls.has(item.url)) {
+          unique.push(item);
+          urls.add(item.url);
+        }
+      }
+
+      return unique.slice(0, 5);
+    });
+
+    return results;
+  } catch (err) {
+    console.warn(`  [El Lagar] Error buscando "${searchTerm}": ${err.message}`);
+    return [];
+  } finally {
+    if (browser) await browser.close();
   }
-
-  $products.slice(0, 5).each((_, el) => {
-    const $el = $(el);
-
-    // URL del producto
-    const linkEl = $el.find('a[href*="DetalleArticulo"]').first();
-    const href = linkEl.attr('href');
-    if (!href) return;
-    const url = href.startsWith('http') ? href : `${BASE_URL}${href}`;
-
-    // Precio (busca texto con ₡, CRC, o formato numérico con comas)
-    const precio = extractPriceText($el.text());
-    if (!precio) return;
-
-    const titulo =
-      $el.find('[class*="nombre"], [class*="title"], [class*="name"]').first().text().trim() ||
-      linkEl.text().trim() ||
-      '';
-
-    results.push({ precio, moneda: 'CRC', url, titulo, fuente: 'ellagar' });
-  });
-
-  return results;
-}
-
-/**
- * Extrae el primer precio numérico encontrado en un bloque de texto.
- * Soporta formatos: ₡1.234,56  |  1234.56  |  1,234.56
- * @param {string} text
- * @returns {number | null}
- */
-function extractPriceText(text) {
-  // Quitar símbolo de colón y espacios
-  const clean = text.replace(/₡/g, '').replace(/\s+/g, ' ');
-
-  // Formato: 1.234,56 (europeo con punto de miles y coma decimal)
-  const euroMatch = clean.match(/(\d{1,3}(?:\.\d{3})+),(\d{2})/);
-  if (euroMatch) {
-    return parseFloat(euroMatch[0].replace(/\./g, '').replace(',', '.'));
-  }
-
-  // Formato: 1,234.56 (americano)
-  const usMatch = clean.match(/(\d{1,3}(?:,\d{3})+)\.(\d{2})/);
-  if (usMatch) {
-    return parseFloat(usMatch[0].replace(/,/g, ''));
-  }
-
-  // Formato simple: 1234 o 1234.56
-  const simpleMatch = clean.match(/\b(\d{3,7})(?:[.,]\d{2})?\b/);
-  if (simpleMatch) {
-    return parseFloat(simpleMatch[1]);
-  }
-
-  return null;
 }
 
 module.exports = { searchElLagar };
