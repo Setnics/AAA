@@ -5,6 +5,9 @@
  * 1. 240V TCs → dedicated circuit (one per TC)
  * 2. GFCI/AFCI assigned first (priority)
  * 3. Standard 120V fill by order until maxTC
+ *
+ * FIX #2: Se eliminó getLastAssignedCircuitId() que era poco confiable.
+ * Ahora cada outlet registra directamente el circuito que lo recibió.
  */
 
 import type {
@@ -69,6 +72,7 @@ export function autoAssignOutletsToCircuits(
       asignacionAuto: true,
     };
     circuits.push(circuit);
+    circuitFill.set(circuit.id, 0);
     return circuit;
   }
 
@@ -79,7 +83,7 @@ export function autoAssignOutletsToCircuits(
   function getAvailableCircuit(): Circuit {
     for (const circuit of circuits) {
       const fill = circuitFill.get(circuit.id) ?? 0;
-      if (fill < maxTCPerCircuit) {
+      if (fill < circuit.maxTomacorrientes) {
         return circuit;
       }
     }
@@ -105,63 +109,54 @@ export function autoAssignOutletsToCircuits(
   // ── Step 2: 240V → one dedicated circuit per TC ──
 
   for (const outlet of dedicated240V) {
+    let lastCircuitId = '';
     for (let i = 0; i < outlet.cantidad; i++) {
-      const circuit = createCircuit(
-        outlet.tipo === 'ESTANDAR_240' ? 30 : defaultBreakerCapacity
-      );
+      const circuit = createCircuit(30);
       circuit.maxTomacorrientes = 1;
       circuitFill.set(circuit.id, 1);
-      assignments.set(`${outlet.id}_${i}`, circuit.id);
+      lastCircuitId = circuit.id;
     }
-    // Assign the outlet group to the last created circuit
-    assignments.set(outlet.id, circuits[circuits.length - 1]?.id ?? '');
+    // FIX: Asignamos directamente el ID del último circuito creado para este grupo
+    assignments.set(outlet.id, lastCircuitId);
   }
 
   // ── Step 3: GFCI/AFCI priority assignment ──
 
   for (const outlet of gfciAfciOutlets) {
     let remaining = outlet.cantidad;
+    let lastCircuitId = '';
     while (remaining > 0) {
       const circuit = getAvailableCircuit();
       const currentFill = circuitFill.get(circuit.id) ?? 0;
-      const available = maxTCPerCircuit - currentFill;
+      const available = circuit.maxTomacorrientes - currentFill;
       const toAssign = Math.min(remaining, available);
-
       circuitFill.set(circuit.id, currentFill + toAssign);
       remaining -= toAssign;
+      // FIX: Rastreamos el último circuito que recibió TCs de este grupo
+      lastCircuitId = circuit.id;
     }
-    assignments.set(outlet.id, getLastAssignedCircuitId(circuits, circuitFill));
+    assignments.set(outlet.id, lastCircuitId);
   }
 
   // ── Step 4: Standard 120V fill ──
 
   for (const outlet of standardOutlets) {
     let remaining = outlet.cantidad;
+    let lastCircuitId = '';
     while (remaining > 0) {
       const circuit = getAvailableCircuit();
       const currentFill = circuitFill.get(circuit.id) ?? 0;
-      const available = maxTCPerCircuit - currentFill;
+      const available = circuit.maxTomacorrientes - currentFill;
       const toAssign = Math.min(remaining, available);
-
       circuitFill.set(circuit.id, currentFill + toAssign);
       remaining -= toAssign;
+      // FIX: Rastreamos el último circuito que recibió TCs de este grupo
+      lastCircuitId = circuit.id;
     }
-    assignments.set(outlet.id, getLastAssignedCircuitId(circuits, circuitFill));
+    assignments.set(outlet.id, lastCircuitId);
   }
 
   return { circuits, assignments };
-}
-
-function getLastAssignedCircuitId(
-  circuits: Circuit[],
-  circuitFill: Map<string, number>
-): string {
-  // Return the last circuit that has any fill
-  for (let i = circuits.length - 1; i >= 0; i--) {
-    const fill = circuitFill.get(circuits[i].id) ?? 0;
-    if (fill > 0) return circuits[i].id;
-  }
-  return circuits[circuits.length - 1]?.id ?? '';
 }
 
 // ─── Validation ─────────────────────────────────────────

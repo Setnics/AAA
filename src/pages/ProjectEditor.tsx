@@ -14,6 +14,7 @@ import { useProjectStore } from '../stores/projectStore';
 import { getProfileById } from '../database/normativeProfiles';
 import { db } from '../database/db';
 import type {
+  Project,
   Zone,
   Circuit,
   OutletType,
@@ -55,8 +56,8 @@ function ConfiguracionTab() {
 
   if (!activeProject) return null;
 
-  const handleChange = async (field: keyof typeof activeProject, value: any) => {
-    await updateProject(activeProject.id, { [field]: value });
+  const handleChange = async <K extends keyof Project>(field: K, value: Project[K]) => {
+    await updateProject(activeProject.id, { [field]: value } as Pick<Project, K>);
     
     // Si cambia el tipo de cambio, debemos recalcular el BOM para actualizar precios snap
     if (field === 'tipoCambio') {
@@ -99,11 +100,11 @@ function ConfiguracionTab() {
           </div>
           <div className="form-group">
             <label className="form-label">Nivel de Electrificación</label>
-            <select
-              className="form-select"
-              value={activeProject.nivelElectrificacion}
-              onChange={(e) => handleChange('nivelElectrificacion', e.target.value)}
-            >
+              <select
+                className="form-select"
+                value={activeProject.nivelElectrificacion}
+                onChange={(e) => handleChange('nivelElectrificacion', e.target.value as Project['nivelElectrificacion'])}
+              >
               <option value="BAJO">Bajo</option>
               <option value="MEDIO">Medio</option>
               <option value="ALTO">Alto</option>
@@ -489,18 +490,14 @@ function TomacorrientesTab() {
   const [notas, setNotas] = useState('');
   const [editingOutletId, setEditingOutletId] = useState<string | null>(null);
   const [error, setError] = useState('');
-
-  // Auto-select first circuit if none selected
-  useEffect(() => {
-    if (!selectedCircuit && circuits.length > 0) {
-      setSelectedCircuit(circuits[0].id);
-    }
-  }, [circuits, selectedCircuit]);
+  const selectedCircuitId = circuits.some((circuit) => circuit.id === selectedCircuit)
+    ? selectedCircuit
+    : (circuits[0]?.id ?? '');
 
   const handleAdd = async () => {
     setError('');
 
-    if (!selectedCircuit) {
+    if (!selectedCircuitId) {
       setError('Selecciona un circuito primero.');
       return;
     }
@@ -512,7 +509,7 @@ function TomacorrientesTab() {
 
     if (editingOutletId) {
       await updateOutlet(editingOutletId, {
-        circuitoId: selectedCircuit,
+        circuitoId: selectedCircuitId,
         tipo,
         montaje,
         cantidad,
@@ -520,7 +517,7 @@ function TomacorrientesTab() {
       });
       setEditingOutletId(null);
     } else {
-      await addOutlet(selectedCircuit, tipo, montaje, cantidad, notas.trim());
+      await addOutlet(selectedCircuitId, tipo, montaje, cantidad, notas.trim());
     }
     
     setCantidad(1);
@@ -575,7 +572,7 @@ function TomacorrientesTab() {
                 <select
                   id="tc-circuit"
                   className="form-select"
-                  value={selectedCircuit}
+                  value={selectedCircuitId}
                   onChange={(e) => setSelectedCircuit(e.target.value)}
                 >
                   {zones.map((zone) => {
@@ -755,10 +752,7 @@ function BOMTab() {
     ]).then(([mats, ofs]) => {
       setAllMaterials([...mats, ...ofs]);
     });
-    if (activeProject && viewCurrency !== 'USD' && viewCurrency !== 'CRC') {
-      setViewCurrency(activeProject.moneda);
-    }
-  }, [activeProject]);
+  }, []);
 
   const getMaterial = useCallback(
     (id: string) => allMaterials.find((m) => m.id === id),
