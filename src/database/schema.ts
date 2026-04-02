@@ -41,7 +41,7 @@ export type MaterialCategory =
 
 export type BreakerCapacity = 15 | 20 | 30 | 50;
 
-export type ElectrificationLevel = 'BAJO' | 'MEDIO' | 'ALTO';
+export type ElectrificationLevel = 'BAJO' | 'MEDIO' | 'ALTO' | 'ESPECIAL';
 
 // ─── Entities ────────────────────────────────────────────
 
