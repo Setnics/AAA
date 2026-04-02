@@ -4,6 +4,12 @@ SEITE es una aplicacion web para estimacion de instalaciones electricas. El fluj
 
 La aplicacion trabaja en modo offline-first con IndexedDB mediante Dexie, y usa Supabase para sincronizacion de catalogo y para el proceso externo de actualizacion de precios.
 
+## Documentacion clave
+
+- `README.md`: vision general, stack y comandos principales
+- `docs/workflow-proyecto.md`: flujo tecnico resumido del repositorio
+- `docs/AI-HANDOFF.md`: handoff tecnico detallado para cualquier IA o nuevo agente
+
 ## Capacidades principales
 
 - Gestion de proyectos de estimacion electrica.

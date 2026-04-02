@@ -54,7 +54,7 @@ Por eso el nuevo workflow `app-ci.yml` valida el frontend con `npm ci`, `npm run
 
 ## Observaciones actuales
 
-- El `README.md` todavia describe la plantilla base de Vite y no el producto real.
+- El `README.md` ya describe el producto real y el flujo tecnico vigente.
 - Ya existe una base de tests automatizados sobre motor y store.
 - El baseline actual de calidad automatizada queda en lint + test + build.
 
