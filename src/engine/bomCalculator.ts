@@ -5,6 +5,13 @@
  * Implements the formulas defined in SRS §4.2.
  *
  * Cantidad(M) = CEIL( Σ [CoeF(M, tipo_TC_k, montaje_k, perfil) × N_TC_k] )
+ *
+ * FIX #5: Los materiales sin enlace de referencia ya no se valúan silenciosamente
+ *         en $0. Ahora se usa siempre precioUnitario y se agrega una advertencia
+ *         cuando falta el enlace, para que el usuario sepa que debe verificarlo.
+ *
+ * FIX #9: El porcentaje de mano de obra ya no está hardcodeado al 40%.
+ *         Ahora se lee de project.porcentajeManoObra con fallback al 40%.
  */
 
 import type {
@@ -97,6 +104,13 @@ function applyRounding(value: number, unit: string): number {
   return Math.ceil(value);
 }
 
+// ─── Link Validation ────────────────────────────────────
+
+function hasValidReferenceLink(material: Material): boolean {
+  const link = (material.enlaceReferencia || '').trim().toLowerCase();
+  return link.startsWith('http') || link.startsWith('www');
+}
+
 // ─── Main BOM Calculator ────────────────────────────────
 
 export function calculateBOM(input: BOMInput): BOMResult {
@@ -108,6 +122,9 @@ export function calculateBOM(input: BOMInput): BOMResult {
   const cableWastage = project.porcentajeDesperdicioCable ?? (profile.factorDesperdicioCondutor * 100);
   const tubeWastage = project.porcentajeDesperdicioTubo ?? 10;
   const contingency = project.margenContingencia ?? 5;
+
+  // FIX #9: porcentaje de mano de obra configurable por proyecto (default 40%)
+  const laborPct = project.porcentajeManoObra ?? 40;
 
   // Build lookups
   const existingByMaterialId = new Map<string, BOMEntry>();
@@ -161,7 +178,7 @@ export function calculateBOM(input: BOMInput): BOMResult {
     const qtyWithWastage = rawQty * factor;
 
     if (!material) {
-      warnings.push(`Material [${materialCodigo}] no encontrado.`);
+      warnings.push(`Material [${materialCodigo}] no encontrado en el catálogo.`);
       const cantidadEstimada = applyRounding(qtyWithWastage, 'UN');
       entries.push({
         id: uuidv4(),
@@ -175,20 +192,25 @@ export function calculateBOM(input: BOMInput): BOMResult {
       continue;
     }
 
+    // FIX #5: Se usa SIEMPRE el precio del material, sin condicionar al enlace.
+    // Si falta el enlace, se genera una advertencia pero el precio no se zerifica.
+    if (!hasValidReferenceLink(material)) {
+      warnings.push(
+        `Material [${material.codigo}] no tiene enlace de referencia verificado. ` +
+        `Se usa el precio registrado (${material.precioUnitario} ${material.monedaCatalogo}), ` +
+        `pero se recomienda verificarlo.`
+      );
+    }
+
     const cantidadEstimada = applyRounding(qtyWithWastage, material.unidad);
     const existing = existingByMaterialId.get(material.id);
     const hasManualAdjustment = existing && existing.cantidadAjustada !== existing.cantidadEstimada;
 
-    const link = (material.enlaceReferencia || '').trim().toLowerCase();
-    const hasValidLink = link.startsWith('http') || link.startsWith('www');
-
-    let basePrice = hasValidLink ? material.precioUnitario : 0;
-
-    let precioUnitarioSnap = basePrice;
+    let precioUnitarioSnap = material.precioUnitario;
     if (material.monedaCatalogo === 'USD' && project.moneda === 'CRC') {
-      precioUnitarioSnap = basePrice * (project.tipoCambio || 500);
+      precioUnitarioSnap = material.precioUnitario * (project.tipoCambio || 500);
     } else if (material.monedaCatalogo === 'CRC' && project.moneda === 'USD') {
-      precioUnitarioSnap = basePrice / (project.tipoCambio || 500);
+      precioUnitarioSnap = material.precioUnitario / (project.tipoCambio || 500);
     }
 
     const entry: BOMEntry = {
@@ -197,23 +219,28 @@ export function calculateBOM(input: BOMInput): BOMResult {
       materialId: material.id,
       cantidadEstimada,
       cantidadAjustada: hasManualAdjustment ? existing.cantidadAjustada : cantidadEstimada,
-      // If project currency changed, we MUST update the snap price to the new base
-      precioUnitarioSnap: precioUnitarioSnap,
+      precioUnitarioSnap,
       ultimaActualizacion: now,
     };
 
     entries.push(entry);
-    totalMaterialCost = totalMaterialCost + (entry.cantidadAjustada * entry.precioUnitarioSnap);
+    totalMaterialCost += entry.cantidadAjustada * entry.precioUnitarioSnap;
   }
 
-  const laborMonto = totalMaterialCost * 0.4;
+  const laborMonto = totalMaterialCost * (laborPct / 100);
   const contingencyMonto = (totalMaterialCost + laborMonto) * (contingency / 100);
 
   return {
     entries,
     warnings,
-    laborEntry: { descripcion: 'Estimación de Mano de Obra (40%)', monto: laborMonto },
-    contingencyEntry: { descripcion: `Margen de Contingencia (${contingency}%)`, monto: contingencyMonto },
+    laborEntry: {
+      descripcion: `Estimación de Mano de Obra (${laborPct}%)`,
+      monto: laborMonto,
+    },
+    contingencyEntry: {
+      descripcion: `Margen de Contingencia (${contingency}%)`,
+      monto: contingencyMonto,
+    },
   };
 }
 
@@ -237,6 +264,5 @@ export function calculateBOMTotal(
   const subtotal = calculateBOMSubtotal(entries);
   const taxAmount = subtotal * (taxRate / 100);
   const total = subtotal + taxAmount;
-
   return { subtotal, taxAmount, total };
 }

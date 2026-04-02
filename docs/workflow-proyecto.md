@@ -35,6 +35,7 @@ SEITE es una app web construida con React, TypeScript y Vite para estimacion de 
    - logica en `src/stores`, `src/engine` y `src/database`
 3. Validar antes de subir cambios.
    - `npm run lint`
+   - `npm run test`
    - `npm run build`
 4. Abrir push o pull request.
 5. Dejar que `.github/workflows/app-ci.yml` valide la app automaticamente.
@@ -49,12 +50,12 @@ El proyecto tiene dos ritmos distintos:
 - la app web necesita validacion rapida y constante en cada cambio
 - el sondeo de precios depende de secretos, llamadas externas y una ejecucion mas lenta
 
-Por eso el nuevo workflow `app-ci.yml` valida solo el frontend con `npm ci`, `npm run lint` y `npm run build`, mientras que `price-update.yml` queda reservado para la actualizacion semanal de precios.
+Por eso el nuevo workflow `app-ci.yml` valida el frontend con `npm ci`, `npm run lint`, `npm run test` y `npm run build`, mientras que `price-update.yml` queda reservado para la actualizacion semanal de precios.
 
 ## Observaciones actuales
 
 - El `README.md` todavia describe la plantilla base de Vite y no el producto real.
-- No existe un script de tests automatizados en el `package.json` principal.
-- El baseline actual de calidad automatizada queda en lint + build.
+- Ya existe una base de tests automatizados sobre motor y store.
+- El baseline actual de calidad automatizada queda en lint + test + build.
 
-Como siguiente mejora natural, el proyecto puede sumar pruebas unitarias para `src/engine` y `src/stores`.
+Como siguiente mejora natural, el proyecto puede ampliar cobertura hacia exportadores y sincronizacion con Supabase.

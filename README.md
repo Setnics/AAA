@@ -58,6 +58,7 @@ npm run dev
 
 ```bash
 npm run lint
+npm run test
 npm run build
 ```
 
@@ -67,6 +68,8 @@ npm run build
 
 - `npm run dev`: levanta Vite en modo desarrollo.
 - `npm run lint`: ejecuta ESLint sobre el proyecto.
+- `npm run test`: ejecuta la suite automatizada con Vitest.
+- `npm run test:watch`: ejecuta Vitest en modo interactivo.
 - `npm run build`: compila TypeScript y genera el build de produccion.
 - `npm run preview`: sirve localmente el build generado.
 
@@ -157,6 +160,7 @@ Acciones:
 
 - `npm ci`
 - `npm run lint`
+- `npm run test`
 - `npm run build`
 
 Ese workflow usa variables placeholder de Supabase solo para permitir el build en CI. No depende de secrets reales.
@@ -177,10 +181,10 @@ Ese workflow esta separado del CI de la app porque depende de scraping externo, 
 - La app es offline-first. IndexedDB es la fuente de verdad local para proyectos, zonas, circuitos, tomacorrientes y BOM.
 - El catalogo base se siembra automaticamente en el primer arranque.
 - Si cambias el schema de Dexie, incrementa la version de la base y agrega una migracion cuando corresponda.
-- El repo no tiene pruebas unitarias automatizadas todavia. El baseline actual de calidad es `lint + build`.
+- El proyecto ya tiene una base de pruebas automatizadas en `src/engine` y `src/stores`.
+- El baseline actual de calidad es `lint + test + build`.
 
 ## Limitaciones actuales
 
-- No hay suite de tests automatizados para `src/engine` ni `src/stores`.
 - El build actual genera una advertencia de Vite por chunks grandes en produccion.
 - El workflow de precios debe mantenerse y probarse por separado del frontend.
